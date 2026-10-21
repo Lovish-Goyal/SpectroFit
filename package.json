@@ -1,0 +1,11 @@
+{
+  "name": "spectrofit",
+  "version": "1.0.0",
+  "description": "SpectroFit - AR Virtual Try-On & Dynamic Compute Offloader",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File ./start_platform.ps1"
+  },
+  "devDependencies": {
+    "three": "^0.186.1"
+  }
+}

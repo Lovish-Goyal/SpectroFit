@@ -1,0 +1,11 @@
+Model Information:
+* title:	Human
+* source:	https://sketchfab.com/3d-models/human-03a70758739544b3aa705c13af3872b1
+* author:	aaron.kalvin (https://sketchfab.com/aaron.kalvin)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Human" (https://sketchfab.com/3d-models/human-03a70758739544b3aa705c13af3872b1) by aaron.kalvin (https://sketchfab.com/aaron.kalvin) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

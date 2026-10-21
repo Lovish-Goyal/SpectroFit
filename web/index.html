@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpectroFit &bull; Virtual Try-On Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><polygon points='12 2 2 7 12 12 22 7 12 2' fill='%233b82f6'/></svg>">
+  <link rel="stylesheet" href="style.css?v=20261020-studio-blue-v1">
+  <link rel="stylesheet" href="vto/cvDiagnostics.css?v=20261020-studio-blue-v1">
+  <!-- Three.js, OrbitControls and GLTFLoader from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- MediaPipe FaceMesh for Live Camera Virtual Try-On -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+
+<body class="enterprise-dark">
+
+  <div id="app-layout">
+
+    <!-- LEFT SIDEBAR: Brand, Categories & Scrollable Model Cards -->
+    <aside id="main-nav-sidebar">
+      <div class="sidebar-header">
+        <div class="brand-block">
+          <div class="brand-symbol">
+            <!-- SpectroFit Rounded Blue Infinity / Glasses Logo -->
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6">
+              <circle cx="7" cy="12" r="4.2"></circle>
+              <circle cx="17" cy="12" r="4.2"></circle>
+              <line x1="11.2" y1="12" x2="12.8" y2="12"></line>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <h2>SpectroFit</h2>
+            <span class="sub-brand">Virtual try-on studio</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Eyewear Collection Header -->
+      <div class="category-header-row">
+        <div class="category-select-wrapper category-static-wrapper">
+          <span class="category-static-title">👓 Glasses &amp; Eyewear</span>
+          <span class="model-count-pill" id="sidebar-model-count">8 models</span>
+        </div>
+      </div>
+
+      <!-- Product Explorer List -->
+      <div class="products-explorer-section">
+        <div class="products-list" id="products-explorer-list">
+          <!-- Dynamically populated product cards with custom SVG thumbnails -->
+        </div>
+      </div>
+
+      <!-- Edge Cluster Status Card -->
+      <div class="sidebar-edge-status">
+        <div class="edge-dot"></div>
+        <div class="edge-info">
+          <span class="edge-title">Edge cluster ready</span>
+          <span class="edge-metrics" id="sidebar-edge-metrics">Latency 2.6 ms &bull; 59.9 FPS</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN INTERACTIVE STUDIO -->
+    <main id="main-content-stage">
+
+      <!-- Primary Top Bar (Title + Subtitle + Mode Toggles) -->
+      <header id="stage-header">
+        <div class="header-left-col">
+          <h1 id="active-product-name">Minimalist Round Wire Frames</h1>
+          <span class="product-subtitle" id="active-product-subtitle">Round &bull; Precision fit</span>
+        </div>
+
+        <div class="header-right-col">
+          <!-- Viewport Mode: 3D Studio vs Live Camera AR -->
+          <div class="mode-switch-group">
+            <button class="switch-tab active" id="btn-studio-mode">
+              <span>3D studio</span>
+            </button>
+            <button class="switch-tab" id="btn-camera-mode">
+              <span>Live camera</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- 3D Canvas / Camera Viewport Area (Filters removed per user request) -->
+      <div id="viewport-stage-area">
+        <canvas id="ar-viewport-canvas"></canvas>
+        <video id="webcam-feed" autoplay playsinline muted style="display: none;"></video>
+
+        <!-- Stage Actions Bar: Tracking pill on left, Reset View on right (Temple debug removed) -->
+        <div class="stage-actions-bar">
+          <div class="action-bar-left">
+            <div class="action-pill status-pill">
+              <span class="status-dot"></span>
+              <span id="active-product-anchor">Face and eye tracked</span>
+            </div>
+          </div>
+          <div class="action-bar-right">
+            <button class="action-pill-btn" id="btn-reset-view" title="Reset View Angle">
+              <span>Reset view</span>
+            </button>
+            <button class="action-pill-btn action-pill-export" id="btn-top-export"
+              title="Export High-Resolution Snapshot">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Export</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Hidden utility buttons for backwards compatibility -->
+        <div id="viewport-action-dock" style="display: none;">
+          <button id="btn-toggle-rigid-debug"></button>
+          <span id="label-rigid-debug-btn"></span>
+          <button id="btn-toggle-occlusion"></button>
+          <span id="label-occlusion-btn"></span>
+        </div>
+
+        <!-- Full-Screen Live AR Tracking Indicator -->
+        <div id="contextual-camera-guide" style="display: none;">
+          <div class="camera-status-pill">
+            <span class="live-dot"></span>
+            <span id="camera-guide-instruction">Full Screen Live AR &bull; Face Tracked</span>
+          </div>
+        </div>
+
+        <!-- Production VTO Real-Time Anthropometric HUD (Camera Mode) -->
+        <div id="vto-metrics-badge" class="vto-metrics-pill" style="display: none;">
+          <span class="vto-metric-item" title="Interpupillary Distance"><strong id="vto-metric-pd">PD:
+              63mm</strong></span>
+          <span class="vto-metric-divider">&bull;</span>
+          <span class="vto-metric-item" title="Bizygomatic Face Width"><strong id="vto-metric-width">Width:
+              140mm</strong></span>
+          <span class="vto-metric-divider">&bull;</span>
+          <span class="vto-metric-item" id="vto-metric-pose">Yaw: 0° Pitch: 0°</span>
+          <span class="vto-metric-divider">&bull;</span>
+          <span class="vto-metric-pill-tag" id="vto-metric-occlusion">Depth Occlusion: ON</span>
+        </div>
+
+        <!-- Bottom Floating Controls Dock: Interaction Hint + Frame Stepper -->
+        <div id="viewport-bottom-dock">
+          <div class="hint-pill">
+            <span id="hint-label">Drag to rotate 360&deg; &bull; Arrow keys switch frames</span>
+          </div>
+          <div class="stepper-pill">
+            <button class="stepper-btn" id="btn-prev-item" title="Previous model">‹</button>
+            <div class="stepper-counter">
+              <span id="carousel-curr-idx">1</span>
+              <span class="divider">/</span>
+              <span id="carousel-total-idx">9</span>
+            </div>
+            <button class="stepper-btn" id="btn-next-item" title="Next model">›</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Hidden background telemetry container to maintain offloader simulation bindings -->
+      <footer id="bottom-metrics-ribbon" style="display: none;">
+        <span id="decision-badge">CLIENT LOCAL</span>
+        <span id="metric-m2p">1.2 ms</span>
+        <span id="metric-server-time">0.45 ms</span>
+        <span id="metric-fps">60.0 FPS</span>
+        <p id="decision-reason">Healthy client resources</p>
+        <span id="label-bat">85%</span>
+        <input type="range" id="range-battery" min="5" max="100" value="85">
+        <span id="label-cpu">25%</span>
+        <input type="range" id="range-cpu" min="5" max="100" value="25">
+        <span id="label-rtt">18 ms</span>
+        <input type="range" id="range-rtt" min="5" max="250" value="18">
+        <button id="preset-normal"></button>
+        <button id="preset-battery"></button>
+        <button id="preset-cpu"></button>
+        <button id="preset-rtt"></button>
+      </footer>
+
+    </main>
+
+  </div>
+
+  <!-- Production-Grade Virtual Try-On Pipeline Modules -->
+  <script src="vto/filter.js?v=20261021-v32"></script>
+  <script src="vto/calibration.js?v=20261021-v32"></script>
+  <script src="vto/poseEstimator.js?v=20261021-v32"></script>
+  <script src="vto/occlusion.js?v=20261021-v32"></script>
+  <script src="vto/fitter.js?v=20261021-v32"></script>
+  <script src="vto/faceTracker.js?v=20261021-v32"></script>
+  <script src="vto/vtoPipeline.js?v=20261021-v32"></script>
+  <script src="vto/cvDiagnosticsOverlay.js?v=20261021-v32"></script>
+  <script src="app.js?v=20261021-v32"></script>
+</body>
+
+</html>

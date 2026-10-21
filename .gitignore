@@ -1,0 +1,48 @@
+# Binaries and executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Test artifacts and scratch scripts/screenshots
+scratch/
+*.log
+
+# Operating System & IDE files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker / Kubernetes temporary files
+*.tmp
+
+# Python virtual environment & cache
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local technical documentation (excluded from Git)
+docs/
+
+# Server runtime logs
+logs/
+*.log
+
+# Heavy uncompressed video fixtures (>50MB)
+*.y4m
+
+# Local staging directory for raw models
+sketch_models/

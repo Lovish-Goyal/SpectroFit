@@ -1,0 +1,390 @@
+/* ==========================================================================
+   SpectroFit AR &bull; Advanced Computer Vision & 6-DoF AR Diagnostics CSS
+   Futuristic, Research-Grade Glassmorphism HUD Overlays
+   ========================================================================== */
+
+/* Full-viewport overlay canvas */
+#cv-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  pointer-events: none;
+  display: block;
+}
+
+/* Floating Mode Selector Dock (Prominently Centered at Top of Viewport) */
+#cv-mode-dock {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: none; /* Shown dynamically in camera mode */
+  align-items: center;
+  background: rgba(10, 14, 23, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  border-radius: 22px;
+  padding: 3px 5px;
+  gap: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 16px rgba(0, 240, 255, 0.16);
+  max-width: calc(100% - 200px);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.cv-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 13px;
+  border-radius: 16px;
+  font-family: 'JetBrains Mono', 'Plus Jakarta Sans', monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: #94a3b8;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.cv-mode-tab:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cv-mode-tab.active {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.18), rgba(0, 102, 255, 0.24));
+  border-color: rgba(0, 240, 255, 0.55);
+  color: #00f0ff;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
+}
+
+.cv-tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ==========================================================================
+   Full Futuristic Diagnostics HUD Panel (Right Side of Camera Viewport)
+   ========================================================================== */
+#cv-diagnostics-hud {
+  position: absolute;
+  top: 56px;
+  right: 20px;
+  bottom: 24px;
+  width: 320px;
+  max-width: calc(100% - 40px);
+  z-index: 12;
+  display: none; /* Shown in Mode 3 (Diagnostics) and Mode 4 (Research) */
+  flex-direction: column;
+  background: rgba(8, 12, 20, 0.86);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.26);
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', monospace;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), inset 0 0 1px rgba(0, 240, 255, 0.35);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 240, 255, 0.25) transparent;
+  pointer-events: auto;
+}
+
+#cv-diagnostics-hud::-webkit-scrollbar {
+  width: 4px;
+}
+#cv-diagnostics-hud::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.3);
+  border-radius: 4px;
+}
+
+/* Header & Status Banner */
+.cv-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cv-hud-title-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.cv-hud-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #00f0ff;
+  text-transform: uppercase;
+}
+
+.cv-hud-subtitle {
+  font-size: 0.60rem;
+  color: #64748b;
+  letter-spacing: -0.01em;
+}
+
+.cv-hud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.60rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.cv-pulse-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+  animation: cvPulse 1.8s infinite ease-in-out;
+}
+
+@keyframes cvPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* Modular HUD Sections */
+.cv-hud-section {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 9px 10px;
+  margin-bottom: 9px;
+}
+
+.cv-sec-title {
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 6-DoF Pose Grid with Attitude Gyro */
+.cv-pose-grid {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+#cv-attitude-canvas {
+  width: 70px;
+  height: 70px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 50%;
+  display: block;
+}
+
+.cv-angle-readouts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.cv-angle-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.cv-angle-label {
+  font-size: 0.58rem;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.cv-angle-val {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.cv-angle-val.highlight-yaw { color: #38bdf8; }
+.cv-angle-val.highlight-pitch { color: #f43f5e; }
+.cv-angle-val.highlight-roll { color: #a855f7; }
+
+/* Sub-metrics strip (IPD, Width, Distance) */
+.cv-sub-metrics {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  font-size: 0.62rem;
+  color: #94a3b8;
+}
+
+.cv-sub-metrics strong {
+  color: #e2e8f0;
+}
+
+/* Performance Metrics 2-Col Grid */
+.cv-perf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+}
+
+.cv-perf-card {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.cv-perf-label {
+  font-size: 0.58rem;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.cv-perf-val {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #00f0ff;
+}
+
+.cv-perf-val.alt-green { color: #10b981; }
+.cv-perf-val.alt-amber { color: #f59e0b; }
+.cv-perf-val.alt-purple { color: #c084fc; }
+
+.cv-perf-sub {
+  font-size: 0.54rem;
+  color: #475569;
+  margin-top: 1px;
+}
+
+/* Real-Time Sparkline Waveform Charts */
+.cv-chart-wrap {
+  margin-top: 7px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.cv-chart-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.58rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.cv-sparkline {
+  width: 100%;
+  height: 38px;
+  display: block;
+}
+
+/* Hardware & Platform Telemetry */
+.cv-hw-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.60rem;
+  padding: 2px 0;
+  color: #94a3b8;
+}
+
+.cv-hw-val {
+  color: #e2e8f0;
+  font-weight: 600;
+  text-align: right;
+  max-width: 170px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Export & Benchmark Action Buttons */
+.cv-export-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cv-btn-export {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.14), rgba(0, 102, 255, 0.18));
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  color: #00f0ff;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.64rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: all 0.14s ease;
+}
+
+.cv-btn-export:hover {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.28), rgba(0, 102, 255, 0.32));
+  border-color: #00f0ff;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+  color: #ffffff;
+}
+
+.cv-export-toast {
+  display: none;
+  font-size: 0.60rem;
+  color: #34d399;
+  text-align: center;
+  margin-top: 5px;
+}
+
+/* Mobile & Small Screen Responsiveness */
+@media (max-width: 860px) {
+  #cv-mode-dock {
+    top: 46px;
+    left: 12px;
+    right: 12px;
+    justify-content: space-around;
+  }
+  .cv-mode-tab {
+    padding: 4px 8px;
+    font-size: 0.65rem;
+  }
+  #cv-diagnostics-hud {
+    top: auto;
+    bottom: 60px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 240px;
+  }
+}

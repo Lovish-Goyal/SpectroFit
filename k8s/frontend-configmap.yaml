@@ -1,0 +1,735 @@
+apiVersion: v1
+data:
+  app.js: |
+    // Cloud-Native Spatial AR Engine & Dynamic Offloader Simulator
+    // Production WebXR & Edge Spatial Computing Architecture
+
+    const BACKEND_URL = "http://localhost:30080";
+
+    // --- State Management ---
+    let scene, camera, renderer, controls, raycaster, mouse;
+    let floorMesh, reticle;
+    let catalog = [];
+    let selectedAsset = null;
+    let placedObjects = [];
+    let roomPolygon = [
+      { x: -2.5, y: 0, z: -2.0 },
+      { x: 2.5, y: 0, z: -2.0 },
+      { x: 2.5, y: 0, z: 2.0 },
+      { x: -2.5, y: 0, z: 2.0 }
+    ];
+
+    // Telemetry & FPS state
+    let lastFrameTime = performance.now();
+    let frameCount = 0;
+    let currentFPS = 60.0;
+
+    // DOM Elements
+    const hudFPS = document.getElementById("hud-fps");
+    const hudM2P = document.getElementById("hud-m2p");
+    const engineStatus = document.getElementById("engine-status");
+    const assetSelector = document.getElementById("asset-selector");
+    const inputBattery = document.getElementById("input-battery");
+    const inputCPU = document.getElementById("input-cpu");
+    const inputRTT = document.getElementById("input-rtt");
+    const valBattery = document.getElementById("val-battery");
+    const valCPU = document.getElementById("val-cpu");
+    const valRTT = document.getElementById("val-rtt");
+
+    const decBadge = document.getElementById("decision-target-badge");
+    const decTarget = document.getElementById("dec-target");
+    const decLOD = document.getElementById("dec-lod");
+    const decLatency = document.getElementById("dec-latency");
+    const decServerTime = document.getElementById("dec-server-time");
+    const decReason = document.getElementById("dec-reason");
+    const sceneCount = document.getElementById("scene-count");
+
+    // --- 1. Initialize Three.js 3D Viewport ---
+    function initThree() {
+      const container = document.getElementById("canvas-wrapper");
+      const canvas = document.getElementById("ar-canvas");
+
+      // Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0a0d14);
+      scene.fog = new THREE.FogExp2(0x0a0d14, 0.08);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+      camera.position.set(0, 4.5, 6.5);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      // OrbitControls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.maxPolarAngle = Math.PI / 2 - 0.05; // don't go below floor
+      controls.target.set(0, 0.5, 0);
+
+      // Raycasting
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      // Lighting
+      setupLighting();
+
+      // Build Room Environment (Floor polygon and subtle boundaries)
+      buildRoomEnvironment();
+
+      // Build 3D Placement Reticle
+      buildReticle();
+
+      // Window Resize Listener
+      window.addEventListener("resize", onWindowResize);
+
+      // Canvas Interactions
+      canvas.addEventListener("mousemove", onMouseMove);
+      canvas.addEventListener("click", onCanvasClick);
+
+      // Start Animation Loop
+      animate();
+    }
+
+    function setupLighting() {
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xe0f2fe, 1.2);
+      dirLight.position.set(4, 7, 3);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 1024;
+      dirLight.shadow.mapSize.height = 1024;
+      dirLight.shadow.camera.near = 0.5;
+      dirLight.shadow.camera.far = 20;
+      dirLight.shadow.bias = -0.001;
+      scene.add(dirLight);
+
+      // Blue edge-accent light
+      const rimLight = new THREE.DirectionalLight(0x00f0ff, 0.5);
+      rimLight.position.set(-5, 3, -4);
+      scene.add(rimLight);
+    }
+
+    function buildRoomEnvironment() {
+      // 5m x 4m Room Floor Mesh (Area = 20 sq meters)
+      const floorGeo = new THREE.PlaneGeometry(5.0, 4.0);
+      const floorMat = new THREE.MeshStandardMaterial({
+        color: 0x161e2e,
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      floorMesh = new THREE.Mesh(floorGeo, floorMat);
+      floorMesh.rotation.x = -Math.PI / 2;
+      floorMesh.receiveShadow = true;
+      floorMesh.name = "room-floor-surface";
+      scene.add(floorMesh);
+
+      // Spatial Grid Helper on Floor
+      const gridHelper = new THREE.GridHelper(5.0, 20, 0x00f0ff, 0x22304d);
+      gridHelper.position.y = 0.002;
+      scene.add(gridHelper);
+
+      // Subtle Room Outline Wireframe
+      const outlineGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(5.0, 2.8, 4.0));
+      const outlineMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.25 });
+      const roomWireframe = new THREE.LineSegments(outlineGeo, outlineMat);
+      roomWireframe.position.y = 1.4;
+      scene.add(roomWireframe);
+    }
+
+    function buildReticle() {
+      const reticleGeo = new THREE.RingGeometry(0.2, 0.25, 32);
+      const reticleMat = new THREE.MeshBasicMaterial({
+        color: 0x00f0ff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85
+      });
+      reticle = new THREE.Mesh(reticleGeo, reticleMat);
+      reticle.rotation.x = -Math.PI / 2;
+      reticle.position.y = 0.005;
+      reticle.visible = false;
+      scene.add(reticle);
+    }
+
+    // --- 2. Procedural 3D Asset Generators ---
+    function createAsset3DModel(category, lod) {
+      const group = new THREE.Group();
+
+      switch (category) {
+        case "chair": {
+          // Nordic Chair
+          const seatGeo = new THREE.BoxGeometry(0.5, 0.05, 0.5);
+          const seatMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.4 });
+          const seat = new THREE.Mesh(seatGeo, seatMat);
+          seat.position.y = 0.45;
+          seat.castShadow = true;
+          group.add(seat);
+
+          // Backrest
+          const backGeo = new THREE.BoxGeometry(0.5, 0.4, 0.05);
+          const back = new THREE.Mesh(backGeo, seatMat);
+          back.position.set(0, 0.65, -0.22);
+          back.castShadow = true;
+          group.add(back);
+
+          // 4 Legs
+          const legGeo = new THREE.CylinderGeometry(0.02, 0.015, 0.45, 12);
+          const legMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 });
+          const offsets = [
+            [-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]
+          ];
+          offsets.forEach(([x, z]) => {
+            const leg = new THREE.Mesh(legGeo, legMat);
+            leg.position.set(x, 0.225, z);
+            leg.castShadow = true;
+            group.add(leg);
+          });
+          break;
+        }
+        case "desk": {
+          // Modern Wooden Table
+          const topGeo = new THREE.BoxGeometry(1.2, 0.06, 0.8);
+          const topMat = new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.3 });
+          const top = new THREE.Mesh(topGeo, topMat);
+          top.position.y = 0.72;
+          top.castShadow = true;
+          group.add(top);
+
+          // Legs
+          const legGeo = new THREE.BoxGeometry(0.06, 0.72, 0.06);
+          const legMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7 });
+          const tableOffsets = [
+            [-0.52, -0.32], [0.52, -0.32], [-0.52, 0.32], [0.52, 0.32]
+          ];
+          tableOffsets.forEach(([x, z]) => {
+            const leg = new THREE.Mesh(legGeo, legMat);
+            leg.position.set(x, 0.36, z);
+            leg.castShadow = true;
+            group.add(leg);
+          });
+          break;
+        }
+        case "sofa": {
+          // Luxury High-Poly Sofa
+          const baseGeo = new THREE.BoxGeometry(2.0, 0.3, 0.9);
+          const fabricMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 });
+          const base = new THREE.Mesh(baseGeo, fabricMat);
+          base.position.y = 0.25;
+          base.castShadow = true;
+          group.add(base);
+
+          // Backrest
+          const backGeo = new THREE.BoxGeometry(2.0, 0.55, 0.25);
+          const back = new THREE.Mesh(backGeo, fabricMat);
+          back.position.set(0, 0.65, -0.32);
+          back.castShadow = true;
+          group.add(back);
+
+          // Armrests
+          const armGeo = new THREE.BoxGeometry(0.2, 0.45, 0.9);
+          const leftArm = new THREE.Mesh(armGeo, fabricMat);
+          leftArm.position.set(-0.9, 0.55, 0);
+          leftArm.castShadow = true;
+          group.add(leftArm);
+
+          const rightArm = new THREE.Mesh(armGeo, fabricMat);
+          rightArm.position.set(0.9, 0.55, 0);
+          rightArm.castShadow = true;
+          group.add(rightArm);
+          break;
+        }
+        case "lamp": {
+          // Ambient Lamp
+          const baseGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.03, 24);
+          const metalMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 });
+          const base = new THREE.Mesh(baseGeo, metalMat);
+          base.position.y = 0.015;
+          group.add(base);
+
+          const poleGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.45, 16);
+          const pole = new THREE.Mesh(poleGeo, metalMat);
+          pole.position.y = 0.24;
+          group.add(pole);
+
+          const shadeGeo = new THREE.ConeGeometry(0.15, 0.18, 24, 1, true);
+          const shadeMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0xfef08a, emissiveIntensity: 0.3 });
+          const shade = new THREE.Mesh(shadeGeo, shadeMat);
+          shade.position.y = 0.45;
+          group.add(shade);
+
+          // PointLight casting warm illumination
+          const light = new THREE.PointLight(0xfef08a, 0.8, 2.5);
+          light.position.set(0, 0.42, 0);
+          group.add(light);
+          break;
+        }
+      }
+
+      // Smooth spawn pop-in animation
+      group.scale.set(0.01, 0.01, 0.01);
+      animateScaleUp(group);
+
+      return group;
+    }
+
+    function animateScaleUp(obj) {
+      let s = 0.01;
+      const interval = setInterval(() => {
+        s += 0.08;
+        if (s >= 1.0) {
+          obj.scale.set(1, 1, 1);
+          clearInterval(interval);
+        } else {
+          obj.scale.set(s, s, s);
+        }
+      }, 16);
+    }
+
+    // --- 3. Interaction Handlers ---
+    function onMouseMove(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObject(floorMesh);
+
+      if (intersects.length > 0) {
+        const p = intersects[0].point;
+        reticle.position.set(p.x, 0.005, p.z);
+        reticle.visible = true;
+
+        // Check if within polygon bounds
+        const inside = (Math.abs(p.x) <= 2.4 && Math.abs(p.z) <= 1.9);
+        reticle.material.color.setHex(inside ? 0x00f0ff : 0xf43f5e);
+      } else {
+        reticle.visible = false;
+      }
+    }
+
+    async function onCanvasClick(event) {
+      if (!reticle.visible || !selectedAsset) return;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObject(floorMesh);
+      if (intersects.length === 0) return;
+
+      const point = intersects[0].point;
+
+      // Prepare Telemetry Payload from Sliders
+      const telemetry = {
+        device_id: "webxr-client-simulator",
+        timestamp: new Date().toISOString(),
+        battery_level: parseFloat(inputBattery.value) / 100.0,
+        client_cpu_load: parseFloat(inputCPU.value) / 100.0,
+        network_rtt_ms: parseFloat(inputRTT.value),
+        client_fps: currentFPS,
+        motion_to_photon_ms: 12.5
+      };
+
+      const payload = {
+        asset_id: selectedAsset.id,
+        target_surface: {
+          id: "room-floor-main",
+          type: "floor",
+          area_sq_m: 20.0,
+          polygon: roomPolygon
+        },
+        position: { x: point.x, y: 0.0, z: point.z },
+        rotation: { x: 0.0, y: 0.0, z: 0.0 },
+        telemetry: telemetry
+      };
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/v1/spatial/validate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          alert(`Backend Validation Failed: ${errText}`);
+          return;
+        }
+
+        const data = await res.json();
+        handlePlacementResult(data, point);
+
+      } catch (err) {
+        console.error("Failed to connect to Kubernetes engine:", err);
+        // Offline heuristic fallback simulation
+        fallbackLocalEvaluation(point, telemetry);
+      }
+    }
+
+    function handlePlacementResult(data, point) {
+      // Update HUD
+      const decision = data.offload_decision;
+      decTarget.textContent = decision.target;
+      decLOD.textContent = decision.recommended_lod;
+      decLatency.textContent = `${decision.predicted_latency_ms.toFixed(1)} ms`;
+      decServerTime.textContent = `${data.server_process_time_ms.toFixed(2)} ms`;
+      decReason.textContent = decision.reason;
+      hudM2P.textContent = `${decision.predicted_latency_ms.toFixed(1)} ms`;
+
+      // Update Badge & Glow
+      const card = document.querySelector(".decision-card");
+      card.classList.remove("target-cloud", "target-local");
+
+      if (decision.target === "EDGE_CLOUD") {
+        decBadge.textContent = "EDGE CLOUD OFFLOAD";
+        decBadge.className = "badge";
+        decBadge.style.background = "rgba(139, 92, 246, 0.25)";
+        decBadge.style.color = "#a78bfa";
+        card.classList.add("target-cloud");
+      } else {
+        decBadge.textContent = "CLIENT LOCAL";
+        decBadge.className = "badge";
+        decBadge.style.background = "rgba(16, 185, 129, 0.25)";
+        decBadge.style.color = "#34d399";
+        card.classList.add("target-local");
+      }
+
+      if (data.valid) {
+        // Spawn 3D Object
+        const obj = createAsset3DModel(selectedAsset.category, decision.recommended_lod);
+        obj.position.set(point.x, 0, point.z);
+        scene.add(obj);
+        placedObjects.push(obj);
+        sceneCount.textContent = `${placedObjects.length} Objects`;
+      } else {
+        alert(`Placement Rejected: ${data.message}`);
+      }
+    }
+
+    function fallbackLocalEvaluation(point, telemetry) {
+      alert("Notice: Golang Engine at http://localhost:30080 is unreachable. Ensure the Kind cluster is active.");
+    }
+
+    // --- 4. Catalog & UI Binding ---
+    async function fetchAssetCatalog() {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/v1/assets`);
+        if (res.ok) {
+          catalog = await res.json();
+          engineStatus.textContent = "ONLINE (KIND K8S)";
+          engineStatus.style.color = "var(--accent-emerald)";
+        } else {
+          throw new Error("HTTP error " + res.status);
+        }
+      } catch (e) {
+        console.warn("Could not reach backend catalog, loading local baseline catalog", e);
+        engineStatus.textContent = "FALLBACK";
+        engineStatus.style.color = "var(--accent-amber)";
+        catalog = [
+          { id: "chair-nordic", name: "Nordic Minimalist Chair", category: "chair", polygon_count: 1450, lod_level: "HIGH" },
+          { id: "table-dining", name: "Modern Wooden Table", category: "desk", polygon_count: 3200, lod_level: "HIGH" },
+          { id: "sofa-lounge", name: "Luxury High-Poly Sofa", category: "sofa", polygon_count: 65000, lod_level: "HIGH" },
+          { id: "lamp-ambient", name: "Desk Ambient Lamp", category: "lamp", polygon_count: 820, lod_level: "LOW" }
+        ];
+      }
+
+      renderAssetCatalog();
+    }
+
+    function renderAssetCatalog() {
+      assetSelector.innerHTML = "";
+      catalog.forEach((item, index) => {
+        const card = document.createElement("div");
+        card.className = "asset-item" + (index === 0 ? " selected" : "");
+        card.innerHTML = `
+          <span class="name">${item.name}</span>
+          <span class="meta">${item.category.toUpperCase()} &bull; LOD: ${item.lod_level}</span>
+          <span class="polys">${item.polygon_count.toLocaleString()} Polygons</span>
+        `;
+
+        card.addEventListener("click", () => {
+          document.querySelectorAll(".asset-item").forEach(c => c.classList.remove("selected"));
+          card.classList.add("selected");
+          selectedAsset = item;
+        });
+
+        assetSelector.appendChild(card);
+      });
+
+      if (catalog.length > 0) {
+        selectedAsset = catalog[0];
+      }
+    }
+
+    // Slider Bindings
+    inputBattery.addEventListener("input", (e) => {
+      valBattery.textContent = `${e.target.value}%`;
+    });
+    inputCPU.addEventListener("input", (e) => {
+      valCPU.textContent = `${e.target.value}%`;
+    });
+    inputRTT.addEventListener("input", (e) => {
+      valRTT.textContent = `${e.target.value} ms`;
+    });
+
+    // Presets
+    document.getElementById("btn-preset-healthy").addEventListener("click", () => {
+      setTelemetrySliders(85, 20, 15);
+    });
+    document.getElementById("btn-preset-battery").addEventListener("click", () => {
+      setTelemetrySliders(12, 30, 22);
+    });
+    document.getElementById("btn-preset-cpu").addEventListener("click", () => {
+      setTelemetrySliders(75, 88, 20);
+    });
+    document.getElementById("btn-preset-lag").addEventListener("click", () => {
+      setTelemetrySliders(85, 85, 160);
+    });
+
+    function setTelemetrySliders(bat, cpu, rtt) {
+      inputBattery.value = bat;
+      valBattery.textContent = `${bat}%`;
+      inputCPU.value = cpu;
+      valCPU.textContent = `${cpu}%`;
+      inputRTT.value = rtt;
+      valRTT.textContent = `${rtt} ms`;
+    }
+
+    // Scene Actions
+    document.getElementById("btn-clear-scene").addEventListener("click", async () => {
+      placedObjects.forEach(obj => scene.remove(obj));
+      placedObjects = [];
+      sceneCount.textContent = "0 Objects";
+
+      try {
+        await fetch(`${BACKEND_URL}/api/v1/spatial/clear`, { method: "POST" });
+      } catch (err) {
+        console.warn("Could not notify backend clear", err);
+      }
+    });
+
+    document.getElementById("btn-open-metrics").addEventListener("click", () => {
+      window.open(`${BACKEND_URL}/metrics`, "_blank");
+    });
+
+    function onWindowResize() {
+      const container = document.getElementById("canvas-wrapper");
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+
+    // --- 5. Main Render Loop & FPS Monitor ---
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      // FPS calculation
+      frameCount++;
+      if (now - lastFrameTime >= 1000) {
+        currentFPS = Number(((frameCount * 1000) / (now - lastFrameTime)).toFixed(1));
+        hudFPS.textContent = currentFPS.toFixed(1);
+        frameCount = 0;
+        lastFrameTime = now;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // Bootstrapping
+    window.addEventListener("DOMContentLoaded", () => {
+      initThree();
+      fetchAssetCatalog();
+    });
+  index.html: "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n
+    \ <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n
+    \ <title>Cloud-Native Spatial AR Engine & Dynamic Offloader</title>\n  <link rel=\"preconnect\"
+    href=\"https://fonts.googleapis.com\">\n  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\"
+    crossorigin>\n  <link href=\"https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap\"
+    rel=\"stylesheet\">\n  <link rel=\"stylesheet\" href=\"style.css\">\n  <!-- Three.js
+    and OrbitControls from CDN -->\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js\"></script>\n
+    \ <script src=\"https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js\"></script>\n</head>\n<body>\n
+    \ <div id=\"app-container\">\n    <!-- 3D Canvas Viewport -->\n    <div id=\"canvas-wrapper\">\n
+    \     <canvas id=\"ar-canvas\"></canvas>\n      \n      <!-- Top Floating Header
+    -->\n      <header id=\"top-nav\">\n        <div class=\"brand\">\n          <div
+    class=\"pulse-indicator\"></div>\n          <h1>SPATIAL<span class=\"highlight\">MESH</span>-XR</h1>\n
+    \         <span class=\"badge cluster-badge\">K8s Cluster: Active</span>\n        </div>\n
+    \       <div class=\"stats-ticker\">\n          <div class=\"ticker-item\"><span
+    class=\"label\">ENGINE:</span> <span class=\"val\" id=\"engine-status\">CONNECTING...</span></div>\n
+    \         <div class=\"ticker-item\"><span class=\"label\">FPS:</span> <span class=\"val\"
+    id=\"hud-fps\">60.0</span></div>\n          <div class=\"ticker-item\"><span class=\"label\">M2P
+    LATENCY:</span> <span class=\"val\" id=\"hud-m2p\">1.2 ms</span></div>\n        </div>\n
+    \     </header>\n\n      <!-- 3D Placement Reticle Instructions -->\n      <div
+    id=\"canvas-overlay-instruction\">\n        <span>Click on the floor surface to
+    place selected asset</span>\n      </div>\n    </div>\n\n    <!-- Right Control
+    & Simulation HUD -->\n    <aside id=\"sidebar-hud\">\n      <div class=\"sidebar-scroll\">\n
+    \       <!-- Section 1: Asset Selector -->\n        <section class=\"hud-card\">\n
+    \         <div class=\"card-header\">\n            <h3>1. 3D Spatial Asset Catalog</h3>\n
+    \           <span class=\"tag\">Catalog</span>\n          </div>\n          <div
+    class=\"asset-grid\" id=\"asset-selector\">\n            <!-- Populated dynamically
+    via Go Engine API -->\n          </div>\n        </section>\n\n        <!-- Section
+    2: Real-Time Client Telemetry Simulation -->\n        <section class=\"hud-card\">\n
+    \         <div class=\"card-header\">\n            <h3>2. Client Telemetry Simulator</h3>\n
+    \           <span class=\"tag\">Edge Inputs</span>\n          </div>\n          <p
+    class=\"subtitle\">Simulate real-world mobile device thermal & network variations:</p>\n\n
+    \         <!-- Slider 1: Battery -->\n          <div class=\"control-group\">\n
+    \           <div class=\"control-label\">\n              <span>Battery Level</span>\n
+    \             <span class=\"val-display\" id=\"val-battery\">85%</span>\n            </div>\n
+    \           <input type=\"range\" id=\"input-battery\" min=\"5\" max=\"100\" value=\"85\"
+    class=\"slider\">\n          </div>\n\n          <!-- Slider 2: CPU Load -->\n
+    \         <div class=\"control-group\">\n            <div class=\"control-label\">\n
+    \             <span>Client CPU Load</span>\n              <span class=\"val-display\"
+    id=\"val-cpu\">25%</span>\n            </div>\n            <input type=\"range\"
+    id=\"input-cpu\" min=\"5\" max=\"100\" value=\"25\" class=\"slider\">\n          </div>\n\n
+    \         <!-- Slider 3: Network RTT -->\n          <div class=\"control-group\">\n
+    \           <div class=\"control-label\">\n              <span>Network RTT (Ping)</span>\n
+    \             <span class=\"val-display\" id=\"val-rtt\">18 ms</span>\n            </div>\n
+    \           <input type=\"range\" id=\"input-rtt\" min=\"5\" max=\"250\" value=\"18\"
+    class=\"slider\">\n          </div>\n\n          <!-- Quick Scenario Presets -->\n
+    \         <div class=\"scenario-buttons\">\n            <button class=\"preset-btn\"
+    id=\"btn-preset-healthy\">Healthy Client</button>\n            <button class=\"preset-btn\"
+    id=\"btn-preset-battery\">Low Battery (12%)</button>\n            <button class=\"preset-btn\"
+    id=\"btn-preset-cpu\">CPU Throttled (88%)</button>\n            <button class=\"preset-btn\"
+    id=\"btn-preset-lag\">High Ping (160ms)</button>\n          </div>\n        </section>\n\n
+    \       <!-- Section 3: Dynamic Offloading Decision Engine Live Output -->\n        <section
+    class=\"hud-card decision-card\">\n          <div class=\"card-header\">\n            <h3>3.
+    Dynamic Decision Engine</h3>\n            <span class=\"badge\" id=\"decision-target-badge\">IDLE</span>\n
+    \         </div>\n          <div class=\"decision-display\">\n            <div
+    class=\"metric-row\">\n              <span class=\"m-label\">Execution Target:</span>\n
+    \             <span class=\"m-val highlight\" id=\"dec-target\">WAITING FOR ACTION</span>\n
+    \           </div>\n            <div class=\"metric-row\">\n              <span
+    class=\"m-label\">Recommended LOD:</span>\n              <span class=\"m-val\"
+    id=\"dec-lod\">-</span>\n            </div>\n            <div class=\"metric-row\">\n
+    \             <span class=\"m-label\">Predicted M2P Latency:</span>\n              <span
+    class=\"m-val\" id=\"dec-latency\">-</span>\n            </div>\n            <div
+    class=\"metric-row\">\n              <span class=\"m-label\">K8s Compute Duration:</span>\n
+    \             <span class=\"m-val\" id=\"dec-server-time\">-</span>\n            </div>\n
+    \           <div class=\"decision-reason-box\">\n              <span class=\"r-label\">Decision
+    Heuristic Rule:</span>\n              <p class=\"r-text\" id=\"dec-reason\">Select
+    an asset and click the room floor to trigger the offloading algorithm.</p>\n            </div>\n
+    \         </div>\n        </section>\n\n        <!-- Section 4: Spatial Scene
+    Management & Metrics -->\n        <section class=\"hud-card\">\n          <div
+    class=\"card-header\">\n            <h3>4. Spatial Scene Graph</h3>\n            <span
+    class=\"tag\" id=\"scene-count\">0 Objects</span>\n          </div>\n          <div
+    class=\"action-buttons\">\n            <button class=\"btn danger\" id=\"btn-clear-scene\">Clear
+    Scene</button>\n            <button class=\"btn secondary\" id=\"btn-open-metrics\">Prometheus
+    Metrics</button>\n          </div>\n        </section>\n      </div>\n    </aside>\n
+    \ </div>\n\n  <script src=\"app.js\"></script>\n</body>\n</html>\n"
+  style.css: ":root {\n  --bg-primary: #0a0d14;\n  --bg-secondary: rgba(18, 24, 38,
+    0.75);\n  --bg-card: rgba(22, 30, 48, 0.65);\n  --border-color: rgba(255, 255,
+    255, 0.08);\n  --border-highlight: rgba(0, 240, 255, 0.35);\n  \n  --accent-cyan:
+    #00f0ff;\n  --accent-emerald: #10b981;\n  --accent-amber: #f59e0b;\n  --accent-rose:
+    #f43f5e;\n  --accent-purple: #8b5cf6;\n\n  --text-main: #f1f5f9;\n  --text-muted:
+    #94a3b8;\n  --text-dim: #64748b;\n\n  --font-sans: 'Plus Jakarta Sans', system-ui,
+    -apple-system, sans-serif;\n  --font-mono: 'JetBrains Mono', monospace;\n\n  --shadow-glow:
+    0 0 25px rgba(0, 240, 255, 0.15);\n  --shadow-emerald: 0 0 20px rgba(16, 185,
+    129, 0.2);\n  --radius-lg: 14px;\n  --radius-md: 10px;\n  --radius-sm: 6px;\n}\n\n*
+    {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\n\nbody {\n  background-color:
+    var(--bg-primary);\n  color: var(--text-main);\n  font-family: var(--font-sans);\n
+    \ overflow: hidden;\n  height: 100vh;\n  width: 100vw;\n  user-select: none;\n}\n\n#app-container
+    {\n  display: flex;\n  height: 100vh;\n  width: 100vw;\n  position: relative;\n}\n\n/*
+    3D Canvas Viewport */\n#canvas-wrapper {\n  flex: 1;\n  height: 100%;\n  position:
+    relative;\n  background: radial-gradient(circle at 50% 50%, #111827 0%, #0a0d14
+    100%);\n}\n\n#ar-canvas {\n  width: 100%;\n  height: 100%;\n  display: block;\n}\n\n/*
+    Top Floating Header HUD */\n#top-nav {\n  position: absolute;\n  top: 20px;\n
+    \ left: 24px;\n  right: 430px;\n  display: flex;\n  justify-content: space-between;\n
+    \ align-items: center;\n  padding: 12px 20px;\n  background: var(--bg-secondary);\n
+    \ backdrop-filter: blur(16px);\n  border: 1px solid var(--border-color);\n  border-radius:
+    var(--radius-lg);\n  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);\n  z-index: 10;\n}\n\n.brand
+    {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n}\n\n.pulse-indicator
+    {\n  width: 10px;\n  height: 10px;\n  border-radius: 50%;\n  background: var(--accent-cyan);\n
+    \ box-shadow: 0 0 10px var(--accent-cyan);\n  animation: pulse 2s infinite ease-in-out;\n}\n\n@keyframes
+    pulse {\n  0% { transform: scale(0.9); opacity: 0.7; }\n  50% { transform: scale(1.3);
+    opacity: 1; }\n  100% { transform: scale(0.9); opacity: 0.7; }\n}\n\n.brand h1
+    {\n  font-size: 1.15rem;\n  letter-spacing: 1px;\n  font-weight: 700;\n  color:
+    #fff;\n  font-family: var(--font-mono);\n}\n\n.brand .highlight {\n  color: var(--accent-cyan);\n}\n\n.badge
+    {\n  font-size: 0.72rem;\n  font-weight: 600;\n  text-transform: uppercase;\n
+    \ letter-spacing: 0.5px;\n  padding: 3px 8px;\n  border-radius: var(--radius-sm);\n
+    \ background: rgba(255, 255, 255, 0.06);\n  border: 1px solid var(--border-color);\n}\n\n.cluster-badge
+    {\n  background: rgba(16, 185, 129, 0.15);\n  border-color: rgba(16, 185, 129,
+    0.4);\n  color: var(--accent-emerald);\n}\n\n.stats-ticker {\n  display: flex;\n
+    \ gap: 18px;\n  font-family: var(--font-mono);\n  font-size: 0.8rem;\n}\n\n.ticker-item
+    .label {\n  color: var(--text-dim);\n  margin-right: 4px;\n}\n\n.ticker-item .val
+    {\n  color: var(--accent-cyan);\n  font-weight: 600;\n}\n\n/* Reticle Instruction
+    Banner */\n#canvas-overlay-instruction {\n  position: absolute;\n  bottom: 24px;\n
+    \ left: 50%;\n  transform: translateX(-50%);\n  background: rgba(10, 13, 20, 0.85);\n
+    \ backdrop-filter: blur(12px);\n  border: 1px solid var(--border-highlight);\n
+    \ border-radius: 30px;\n  padding: 8px 24px;\n  font-size: 0.85rem;\n  color:
+    var(--text-muted);\n  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);\n  pointer-events:
+    none;\n}\n\n/* Sidebar HUD */\n#sidebar-hud {\n  width: 410px;\n  height: 100vh;\n
+    \ background: var(--bg-secondary);\n  backdrop-filter: blur(20px);\n  border-left:
+    1px solid var(--border-color);\n  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.5);\n
+    \ z-index: 20;\n  display: flex;\n  flex-direction: column;\n}\n\n.sidebar-scroll
+    {\n  flex: 1;\n  overflow-y: auto;\n  padding: 24px;\n  display: flex;\n  flex-direction:
+    column;\n  gap: 18px;\n}\n\n.sidebar-scroll::-webkit-scrollbar {\n  width: 5px;\n}\n.sidebar-scroll::-webkit-scrollbar-thumb
+    {\n  background: rgba(255, 255, 255, 0.1);\n  border-radius: 10px;\n}\n\n/* HUD
+    Cards */\n.hud-card {\n  background: var(--bg-card);\n  border: 1px solid var(--border-color);\n
+    \ border-radius: var(--radius-lg);\n  padding: 18px;\n  transition: border-color
+    0.25s ease, box-shadow 0.25s ease;\n}\n\n.hud-card:hover {\n  border-color: rgba(255,
+    255, 255, 0.15);\n}\n\n.card-header {\n  display: flex;\n  justify-content: space-between;\n
+    \ align-items: center;\n  margin-bottom: 12px;\n}\n\n.card-header h3 {\n  font-size:
+    0.95rem;\n  font-weight: 600;\n  letter-spacing: 0.5px;\n  color: #fff;\n}\n\n.tag
+    {\n  font-size: 0.7rem;\n  font-family: var(--font-mono);\n  color: var(--text-dim);\n
+    \ background: rgba(255, 255, 255, 0.05);\n  padding: 2px 7px;\n  border-radius:
+    4px;\n}\n\n.subtitle {\n  font-size: 0.78rem;\n  color: var(--text-muted);\n  margin-bottom:
+    14px;\n  line-height: 1.4;\n}\n\n/* Asset Selector Grid */\n.asset-grid {\n  display:
+    grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 10px;\n}\n\n.asset-item {\n  background:
+    rgba(255, 255, 255, 0.03);\n  border: 1px solid var(--border-color);\n  border-radius:
+    var(--radius-md);\n  padding: 12px 10px;\n  cursor: pointer;\n  transition: all
+    0.2s ease;\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n}\n\n.asset-item:hover
+    {\n  background: rgba(0, 240, 255, 0.06);\n  border-color: var(--border-highlight);\n
+    \ transform: translateY(-2px);\n}\n\n.asset-item.selected {\n  background: rgba(0,
+    240, 255, 0.12);\n  border-color: var(--accent-cyan);\n  box-shadow: 0 0 15px
+    rgba(0, 240, 255, 0.25);\n}\n\n.asset-item .name {\n  font-size: 0.82rem;\n  font-weight:
+    600;\n  color: #fff;\n}\n\n.asset-item .meta {\n  font-size: 0.7rem;\n  font-family:
+    var(--font-mono);\n  color: var(--accent-cyan);\n}\n\n.asset-item .polys {\n  font-size:
+    0.68rem;\n  font-family: var(--font-mono);\n  color: var(--text-dim);\n}\n\n/*
+    Sliders */\n.control-group {\n  margin-bottom: 14px;\n}\n\n.control-label {\n
+    \ display: flex;\n  justify-content: space-between;\n  font-size: 0.8rem;\n  margin-bottom:
+    6px;\n  color: var(--text-muted);\n}\n\n.val-display {\n  font-family: var(--font-mono);\n
+    \ color: var(--accent-cyan);\n  font-weight: 600;\n}\n\n.slider {\n  width: 100%;\n
+    \ height: 6px;\n  border-radius: 4px;\n  background: rgba(255, 255, 255, 0.1);\n
+    \ outline: none;\n  -webkit-appearance: none;\n}\n\n.slider::-webkit-slider-thumb
+    {\n  -webkit-appearance: none;\n  width: 16px;\n  height: 16px;\n  border-radius:
+    50%;\n  background: var(--accent-cyan);\n  cursor: pointer;\n  box-shadow: 0 0
+    10px var(--accent-cyan);\n  transition: transform 0.1s;\n}\n\n.slider::-webkit-slider-thumb:hover
+    {\n  transform: scale(1.2);\n}\n\n/* Presets */\n.scenario-buttons {\n  display:
+    grid;\n  grid-template-columns: 1fr 1fr;\n  gap: 8px;\n  margin-top: 6px;\n}\n\n.preset-btn
+    {\n  background: rgba(255, 255, 255, 0.05);\n  border: 1px solid var(--border-color);\n
+    \ color: var(--text-muted);\n  font-size: 0.72rem;\n  font-family: var(--font-mono);\n
+    \ padding: 8px 6px;\n  border-radius: var(--radius-sm);\n  cursor: pointer;\n
+    \ transition: all 0.2s;\n}\n\n.preset-btn:hover {\n  background: rgba(255, 255,
+    255, 0.1);\n  color: #fff;\n  border-color: rgba(255, 255, 255, 0.25);\n}\n\n/*
+    Decision Engine Output Card */\n.decision-card {\n  border-color: rgba(0, 240,
+    255, 0.25);\n  background: linear-gradient(180deg, rgba(22, 30, 48, 0.8) 0%, rgba(10,
+    13, 20, 0.95) 100%);\n}\n\n.decision-card.target-cloud {\n  border-color: rgba(139,
+    92, 246, 0.5);\n  box-shadow: 0 0 25px rgba(139, 92, 246, 0.15);\n}\n\n.decision-card.target-local
+    {\n  border-color: rgba(16, 185, 129, 0.5);\n  box-shadow: 0 0 25px rgba(16, 185,
+    129, 0.15);\n}\n\n.metric-row {\n  display: flex;\n  justify-content: space-between;\n
+    \ align-items: center;\n  padding: 6px 0;\n  border-bottom: 1px solid rgba(255,
+    255, 255, 0.04);\n  font-size: 0.82rem;\n}\n\n.metric-row .m-label {\n  color:
+    var(--text-muted);\n}\n\n.metric-row .m-val {\n  font-family: var(--font-mono);\n
+    \ font-weight: 600;\n  color: #fff;\n}\n\n.metric-row .m-val.highlight {\n  color:
+    var(--accent-cyan);\n}\n\n.decision-reason-box {\n  margin-top: 12px;\n  background:
+    rgba(0, 0, 0, 0.3);\n  padding: 10px;\n  border-radius: var(--radius-sm);\n  border-left:
+    3px solid var(--accent-cyan);\n}\n\n.decision-reason-box .r-label {\n  font-size:
+    0.7rem;\n  font-family: var(--font-mono);\n  color: var(--text-dim);\n  text-transform:
+    uppercase;\n  display: block;\n  margin-bottom: 4px;\n}\n\n.decision-reason-box
+    .r-text {\n  font-size: 0.78rem;\n  line-height: 1.4;\n  color: var(--text-main);\n
+    \ font-family: var(--font-mono);\n}\n\n/* Actions */\n.action-buttons {\n  display:
+    flex;\n  gap: 10px;\n}\n\n.btn {\n  flex: 1;\n  padding: 10px 14px;\n  font-size:
+    0.8rem;\n  font-weight: 600;\n  border-radius: var(--radius-sm);\n  cursor: pointer;\n
+    \ border: none;\n  transition: all 0.2s;\n  font-family: var(--font-sans);\n}\n\n.btn.danger
+    {\n  background: rgba(244, 63, 94, 0.15);\n  border: 1px solid rgba(244, 63, 94,
+    0.4);\n  color: var(--accent-rose);\n}\n.btn.danger:hover {\n  background: var(--accent-rose);\n
+    \ color: #fff;\n}\n\n.btn.secondary {\n  background: rgba(255, 255, 255, 0.06);\n
+    \ border: 1px solid var(--border-color);\n  color: var(--text-main);\n}\n.btn.secondary:hover
+    {\n  background: rgba(255, 255, 255, 0.12);\n}\n"
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: web-frontend-files
